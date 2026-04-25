@@ -46,6 +46,15 @@ resource "aws_eip" "client-eip" {
   }
 }
 
+resource "aws_nat_gateway" "client-nat" {
+  allocation_id = aws_eip.client-eip.id
+  subnet_id     = aws_subnet.client-pub-sub[0].id
+
+  tags = {
+    Name = "${var.env}-nat"
+  }
+}
+
 resource "aws_route_table" "client-pub-rt" {
   vpc_id = aws_vpc.client-vpc.id
 
@@ -56,7 +65,7 @@ resource "aws_route_table" "client-pub-rt" {
 
 resource "aws_route" "public-route" {
   route_table_id         = aws_route_table.client-pub-rt.id
-  destination_cidr_block = "0.0.0.0./0"
+  destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.client-igw.id
 }
 
