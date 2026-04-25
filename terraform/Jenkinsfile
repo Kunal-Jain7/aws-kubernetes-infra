@@ -9,84 +9,61 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        WORKING_DIR = 'terraform/environments/${params.ENV}'
-        AWS_ACCESS_KEY_ID = credentials('aws_access_key_id')
-        AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
-        AWS_DEFAULT_REGION = 'us-east-1'
+        WORKING_DIR = "terraform/environments/${params.ENV}"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Verify AWS STS credsentials') {
+        stage('Terraform Operations') {
             steps {
                 dir("${env.WORKING_DIR}") {
-                    sh '''
-                    echo "Verifying AWS credentials with STS..."
-                    aws sts get-caller-identity
-                    '''
-                }
-            }
-        }
 
-        stage('Terraform Initialization Stage') {
-            steps {
-                dir("${env.WORKING_DIR}") {
-                    sh '''
-                    echo "Initializing Terraform..."
-                    terraform init -input=false
-                    '''
-                }
-            }
-        }
+                    withCredentials([
+                        string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
 
-        stage('Terraform Plan Stage') {
-            when {
-                anyOf {
-                    expression { return params.ACTION == 'plan' }
-                    expression { return params.ACTION == 'apply' }
-                }
-            }
-            steps {
-                dir("${env.WORKING_DIR}") {
-                    sh '''
-                    echo "Planning Terraform..."
-                    terraform plan -input=false -out=tfplan
-                    '''
-                }
-            }
-        }
+                        script {
+                            // ✅ Dynamic region selection
+                            if (params.ENV == 'dev') {
+                                env.AWS_DEFAULT_REGION = 'us-east-1'
+                            } else {
+                                env.AWS_DEFAULT_REGION = 'eu-west-1'
+                            }
+                        }
 
-        stage('Terraform Apply Stage') {
-            when {
-                expression { return params.ACTION == 'apply'}
-            }
+                        sh '''
+                            export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
 
-            steps {
-                dir({$env.WORKING_DIR}) {
-                    sh '''
-                    echo "Applying Terraform..."
-                    terraform apply -auto-approve -input=false tfplan
-                    '''
-                }
-            }
-        }
+                            echo "===== VERIFYING AWS IDENTITY ====="
+                            aws sts get-caller-identity
 
-        stage('Terraform Destroy Stage') {
-            when {
-                expression { return params.ACTION == 'destroy'}
-            }
+                            echo "===== TERRAFORM INIT ====="
+                            terraform init -input=false
 
-            steps {
-                dir("${env.WORKING_DIR}") {
-                    sh '''
-                    echo "Destroying Terraform..."
-                    terraform destroy -auto-approve -input=false
-                    '''
+                            if [ "$ACTION" = "plan" ]; then
+                                echo "===== TERRAFORM PLAN ====="
+                                terraform plan -input=false -var-file="terraform.tfvars" -out=tfplan
+
+                            elif [ "$ACTION" = "apply" ]; then
+                                echo "===== TERRAFORM PLAN ====="
+                                terraform plan -input=false -var-file="terraform.tfvars" -out=tfplan
+
+                                echo "===== TERRAFORM APPLY ====="
+                                terraform apply -auto-approve -input=false tfplan
+
+                            elif [ "$ACTION" = "destroy" ]; then
+                                echo "===== TERRAFORM DESTROY ====="
+                                terraform destroy -auto-approve -input=false -var-file="terraform.tfvars"
+                            fi
+                        '''
+                    }
                 }
             }
         }
