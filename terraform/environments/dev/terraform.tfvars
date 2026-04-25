@@ -1,16 +1,6 @@
-cidr_block = "10.0.0.0/16"
-
-public_subnets = [
-  "10.0.1.0/24",
-  "10.0.2.0/24"
-]
-
-private_subnets = [
-  "10.0.3.0/24",
-  "10.0.4.0/24"
-]
-
-azs = [
-  "us-east-1a",
-  "us-east-1b"
-]
+project_name       = "acme"
+owner              = "platform-team"
+cost_center        = "engineering"
+kubernetes_version = "1.33"
+cidr_block         = "10.1.0.0/16"
+service_ipv4_cidr  = "172.20.0.0/16"
