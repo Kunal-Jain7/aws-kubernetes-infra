@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'ENV', choices: ['dev', 'prod'], description: 'Select the environment to deploy to')
+        choice(name: 'ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Select the Terraform action to perform')
+    }
+
+    environment {
+        TF_IN_AUTOMATION = 'true'
+        TF_CLI_ARGS = '-no-color'
+        WORKING_DIR = 'terraform/environments/${params.ENV}'
+        AWS_ACCESS_KEY_ID = credentials('aws_access_key_id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
+        AWS_DEFAULT_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify AWS STS credsentials') {
+            steps {
+                dir("${env.WORKING_DIR}") {
+                    sh '''
+                    echo "Verifying AWS credentials with STS..."
+                    aws sts get-caller-identity
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Initialization Stage') {
+            steps {
+                dir("${env.WORKING_DIR}") {
+                    sh '''
+                    echo "Initializing Terraform..."
+                    terraform init -input=false
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Plan Stage') {
+            when {
+                anyOf {
+                    expression { return params.ACTION == 'plan' }
+                    expression { return params.ACTION == 'apply' }
+                }
+            }
+            steps {
+                dir("${env.WORKING_DIR}") {
+                    sh '''
+                    echo "Planning Terraform..."
+                    terraform plan -input=false -out=tfplan
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Apply Stage') {
+            when {
+                expression { return params.ACTION == 'apply'}
+            }
+
+            steps {
+                dir({$env.WORKING_DIR}) {
+                    sh '''
+                    echo "Applying Terraform..."
+                    terraform apply -auto-approve -input=false tfplan
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Destroy Stage') {
+            when {
+                expression { return params.ACTION == 'destroy'}
+            }
+
+            steps {
+                dir("${env.WORKING_DIR}") {
+                    sh '''
+                    echo "Destroying Terraform..."
+                    terraform destroy -auto-approve -input=false
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline execution completed for environment: ${params.ENV} with action: ${params.ACTION}"
+        }
+        success {
+            echo "Terraform ${params.ACTION} completed successfully for environment: ${params.ENV}"
+        }
+        failure {
+            echo "Terraform ${params.ACTION} failed for environment: ${params.ENV}"
+        }
+    }
+}
